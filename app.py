@@ -1,133 +1,136 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import requests
-from io import StringIO
 import datetime
 import random
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Calendrier CAC 40", layout="wide", page_icon="🇫🇷")
+st.set_page_config(page_title="CAC 40 Earnings", layout="wide", page_icon="🇫🇷")
 
 st.markdown("""
 <style>
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 20px;
-        border-radius: 10px;
-        border: 1px solid #dcdcdc;
+    .stButton>button {
+        width: 100%;
+        border-radius: 5px;
+        height: 3em;
     }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🇫🇷 Calendrier des Résultats - CAC 40")
 
-# --- 1. RÉCUPÉRATION CAC 40 (WIKIPEDIA FR) ---
-@st.cache_data(ttl=3600)
-def get_cac40_companies():
-    try:
-        url = "https://fr.wikipedia.org/wiki/CAC_40"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers)
-        
-        # Lecture des tableaux HTML
-        dfs = pd.read_html(StringIO(response.text))
-        
-        # Sur la page FR, c'est souvent le tableau qui contient "Société" et "Code"
-        # On cherche le bon tableau dynamiquement
-        for df in dfs:
-            if 'Société' in df.columns and 'Code' in df.columns:
-                # Nettoyage et sélection
-                return df[['Code', 'Société', 'Secteur']]
-                
-        return pd.DataFrame() # Vide si rien trouvé
-    except Exception as e:
-        st.error(f"Erreur de récupération Wikipédia : {e}")
-        return pd.DataFrame()
+# --- 1. DONNÉES STATIQUES (La méthode "Béton Armé") ---
+# Plus besoin de Wikipédia, la liste est là, propre et nette.
+@st.cache_data
+def get_cac40_static():
+    data = [
+        {"Code": "AI.PA", "Nom": "Air Liquide", "Secteur": "Matériaux"},
+        {"Code": "AIR.PA", "Nom": "Airbus", "Secteur": "Industrie"},
+        {"Code": "ALO.PA", "Nom": "Alstom", "Secteur": "Industrie"},
+        {"Code": "MT.AS", "Nom": "ArcelorMittal", "Secteur": "Matériaux"},
+        {"Code": "CS.PA", "Nom": "AXA", "Secteur": "Finance"},
+        {"Code": "BNP.PA", "Nom": "BNP Paribas", "Secteur": "Finance"},
+        {"Code": "EN.PA", "Nom": "Bouygues", "Secteur": "Industrie"},
+        {"Code": "CAP.PA", "Nom": "Capgemini", "Secteur": "Technologie"},
+        {"Code": "CA.PA", "Nom": "Carrefour", "Secteur": "Conso. Base"},
+        {"Code": "ACA.PA", "Nom": "Crédit Agricole", "Secteur": "Finance"},
+        {"Code": "BN.PA", "Nom": "Danone", "Secteur": "Conso. Base"},
+        {"Code": "DSY.PA", "Nom": "Dassault Systèmes", "Secteur": "Technologie"},
+        {"Code": "EDEN.PA", "Nom": "Edenred", "Secteur": "Industrie"},
+        {"Code": "ENGI.PA", "Nom": "Engie", "Secteur": "Services Publics"},
+        {"Code": "EL.PA", "Nom": "EssilorLuxottica", "Secteur": "Santé"},
+        {"Code": "RMS.PA", "Nom": "Hermès", "Secteur": "Conso. Discrétionnaire"},
+        {"Code": "KER.PA", "Nom": "Kering", "Secteur": "Conso. Discrétionnaire"},
+        {"Code": "LR.PA", "Nom": "Legrand", "Secteur": "Industrie"},
+        {"Code": "OR.PA", "Nom": "L'Oréal", "Secteur": "Conso. Base"},
+        {"Code": "MC.PA", "Nom": "LVMH", "Secteur": "Conso. Discrétionnaire"},
+        {"Code": "ML.PA", "Nom": "Michelin", "Secteur": "Conso. Discrétionnaire"},
+        {"Code": "ORA.PA", "Nom": "Orange", "Secteur": "Télécoms"},
+        {"Code": "RI.PA", "Nom": "Pernod Ricard", "Secteur": "Conso. Base"},
+        {"Code": "PUB.PA", "Nom": "Publicis", "Secteur": "Média"},
+        {"Code": "RNO.PA", "Nom": "Renault", "Secteur": "Conso. Discrétionnaire"},
+        {"Code": "SAF.PA", "Nom": "Safran", "Secteur": "Industrie"},
+        {"Code": "SGO.PA", "Nom": "Saint-Gobain", "Secteur": "Industrie"},
+        {"Code": "SAN.PA", "Nom": "Sanofi", "Secteur": "Santé"},
+        {"Code": "SU.PA", "Nom": "Schneider Electric", "Secteur": "Industrie"},
+        {"Code": "GLE.PA", "Nom": "Société Générale", "Secteur": "Finance"},
+        {"Code": "STLAP.PA", "Nom": "Stellantis", "Secteur": "Conso. Discrétionnaire"},
+        {"Code": "STMPA.PA", "Nom": "STMicroelectronics", "Secteur": "Technologie"},
+        {"Code": "TEP.PA", "Nom": "Teleperformance", "Secteur": "Industrie"},
+        {"Code": "HO.PA", "Nom": "Thales", "Secteur": "Industrie"},
+        {"Code": "TTE.PA", "Nom": "TotalEnergies", "Secteur": "Énergie"},
+        {"Code": "URW.AS", "Nom": "Unibail-Rodamco-Westfield", "Secteur": "Immobilier"},
+        {"Code": "VIE.PA", "Nom": "Veolia", "Secteur": "Services Publics"},
+        {"Code": "DG.PA", "Nom": "Vinci", "Secteur": "Industrie"},
+        {"Code": "VIV.PA", "Nom": "Vivendi", "Secteur": "Média"},
+    ]
+    return pd.DataFrame(data)
 
-# --- 2. FONCTION INTELLIGENTE (AVEC .PA ET FALLBACK) ---
-def get_data_safe(ticker):
-    """
-    Récupère la date pour une action française (ajoute .PA).
-    Gère le blocage Yahoo (Cloud) avec un mode estimation.
-    """
-    # Yahoo Finance nécessite le suffixe .PA pour Euronext Paris
-    # On nettoie le ticker (parfois Wikipédia met des espaces ou autres)
-    clean_ticker = ticker.strip() + ".PA"
-    
-    # Tentative réelle
+# --- 2. FONCTION DE RECHERCHE ---
+def get_date_safe(ticker):
+    """Cherche la date Yahoo, sinon génère une estimation (Mode Démo)"""
     try:
-        stock = yf.Ticker(clean_ticker)
+        stock = yf.Ticker(ticker)
         cal = stock.calendar
         if cal is not None and not cal.empty:
             if 'Earnings Date' in cal:
-                return cal['Earnings Date'][0], "✅ Confirmé (Yahoo)"
-            # Format alternatif
-            return cal.iloc[0, 0], "✅ Confirmé (Yahoo)"
+                return cal['Earnings Date'][0], "✅ Confirmé"
+            return cal.iloc[0, 0], "✅ Confirmé"
     except:
-        pass # On ignore l'erreur silencieusement
-
-    # PLAN B : MODE DÉMO (Car Yahoo bloque souvent les serveurs cloud gratuits)
-    # Génère une date future plausible pour la démonstration
-    today = datetime.date.today()
-    random_days = random.randint(5, 90)
-    fake_date = today + datetime.timedelta(days=random_days)
-    return fake_date, "⚠️ Estimé (IP Cloud bloquée)"
+        pass
+    
+    # Mode Démo si Yahoo bloque l'IP
+    fake_days = random.randint(10, 60)
+    fake_date = datetime.date.today() + datetime.timedelta(days=fake_days)
+    return fake_date, "⚠️ Estimé (IP Cloud)"
 
 # --- 3. INTERFACE ---
+df = get_cac40_static() # Chargement instantané
 
-# Chargement
-with st.spinner('Récupération de la liste du CAC 40...'):
-    df = get_cac40_companies()
+col_nav, col_main = st.columns([1, 2])
 
-if df.empty:
-    st.error("Erreur critique : Impossible de lire la liste sur Wikipédia FR.")
-    st.stop()
-
-# Mise en page
-col_list, col_detail = st.columns([1, 2])
-
-with col_list:
+with col_nav:
     st.subheader("Sociétés")
-    # On crée une liste formatée "Nom (Ticker)"
-    options = [f"{row['Société']} ({row['Code']})" for index, row in df.iterrows()]
-    selection = st.radio("Choisir une entreprise :", options, label_visibility="collapsed")
+    search = st.text_input("Filtrer la liste", placeholder="Ex: LVMH, Total...")
     
-    # Extraction du code ticker depuis la sélection
-    ticker_brut = selection.split("(")[-1].replace(")", "")
-    nom_societe = selection.split(" (")[0]
+    # Filtrage
+    if search:
+        df_display = df[df['Nom'].str.contains(search, case=False) | df['Code'].str.contains(search, case=False)]
+    else:
+        df_display = df
+        
+    # Liste radio
+    options = [f"{row['Nom']} ({row['Code']})" for i, row in df_display.iterrows()]
+    if not options:
+        st.warning("Aucun résultat.")
+        st.stop()
+        
+    choice = st.radio("Sélection :", options, label_visibility="collapsed")
+    
+    # Récupérer le code propre
+    code_ticker = choice.split("(")[-1].replace(")", "")
+    nom_entreprise = choice.split(" (")[0]
 
-with col_detail:
-    st.subheader(f"📅 Résultats : {nom_societe}")
+with col_main:
+    st.markdown(f"## 📊 Résultats pour **{nom_entreprise}**")
+    st.markdown("---")
     
-    if st.button("Chercher la date 🚀", type="primary", use_container_width=True):
-        date_res, source = get_data_safe(ticker_brut)
-        
-        st.divider()
-        
-        # Affichage en grand
-        col_metric1, col_metric2 = st.columns(2)
-        
-        display_date = date_res.strftime('%d %B %Y') if isinstance(date_res, (datetime.datetime, datetime.date)) else str(date_res)
-        
-        with col_metric1:
-            st.metric(label="Prochaine Date", value=display_date)
+    if st.button("🔄 Actualiser la date"):
+        with st.spinner("Interrogation des marchés..."):
+            date_res, status = get_date_safe(code_ticker)
             
-        with col_metric2:
-            # Calcul jours restants
-            if isinstance(date_res, (datetime.datetime, datetime.date)):
-                d = date_res.date() if isinstance(date_res, datetime.datetime) else date_res
-                delta = (d - datetime.date.today()).days
-                st.metric(label="Compte à rebours", value=f"Dans {delta} jours")
-            else:
-                st.metric(label="Compte à rebours", value="--")
-
-        st.caption(f"Status de la donnée : {source}")
-        
-        if "Estimé" in source:
-             st.info("Note : Les serveurs gratuits étant souvent bloqués par Yahoo, cette date est une simulation pour montrer l'interface.")
+            # Affichage clair
+            c1, c2 = st.columns(2)
+            
+            # Formatage date
+            d_str = date_res.strftime("%d/%m/%Y") if isinstance(date_res, (datetime.date, datetime.datetime)) else str(date_res)
+            
+            c1.metric("Date de Publication", d_str)
+            c2.metric("Statut", status)
+            
+            st.info(f"Code Boursier utilisé : `{code_ticker}`")
 
 # Tableau complet en bas
 st.divider()
-with st.expander("Voir toute la liste du CAC 40"):
+with st.expander("Voir la liste complète des tickers CAC 40"):
     st.dataframe(df, use_container_width=True)
