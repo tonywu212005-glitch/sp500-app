@@ -1,30 +1,22 @@
 import streamlit as st
 import pandas as pd
-import urllib.parse
+import requests
+import datetime
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="CAC 40 Earnings", layout="wide", page_icon="🇫🇷")
 
-st.markdown("""
-<style>
-    .stButton>button {
-        width: 100%;
-        border-radius: 5px;
-        height: 3em;
-        background-color: #004b87;
-        color: white;
-    }
-    .stButton>button:hover {
-        background-color: #003366;
-        color: white;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 st.title("🇫🇷 Calendrier des Résultats - CAC 40")
-st.caption("Propulsé par les données de Zonebourse")
+st.markdown("Propulsé par l'API professionnelle **Finnhub** (0% de blocage)")
 
-# --- 1. DONNÉES STATIQUES ---
+# --- 1. SÉCURITÉ ET CONFIGURATION DE L'API ---
+# Méthode pédagogique : L'utilisateur entre sa clé directement sur le site
+st.sidebar.header("⚙️ Configuration API")
+st.sidebar.markdown("Pour interroger les marchés sans être bloqué, entrez votre clé API Finnhub.")
+api_key = st.sidebar.text_input("🔑 Clé API Finnhub :", type="password")
+st.sidebar.markdown("[👉 Créer une clé gratuite ici](https://finnhub.io/)")
+
+# --- 2. DONNÉES STATIQUES (CAC 40) ---
 @st.cache_data
 def get_cac40_static():
     data = [
@@ -70,17 +62,44 @@ def get_cac40_static():
     ]
     return pd.DataFrame(data)
 
-# --- 2. GÉNÉRATEUR D'URL ZONEBOURSE ---
-def generate_zonebourse_url(nom_entreprise):
-    """
-    Crée une URL de recherche ciblée pour Zonebourse.
-    urllib.parse permet de transformer les espaces en %20 pour que le lien soit valide.
-    """
-    nom_encode = urllib.parse.quote(nom_entreprise)
-    # On dirige directement vers le moteur de recherche de Zonebourse
-    return f"https://www.zonebourse.com/recherche/?mots={nom_encode}"
+# --- 3. REQUÊTE API PROFESSIONNELLE ---
+def get_earnings_api(ticker, key):
+    """Interroge les serveurs de Finnhub pour récupérer la date exacte."""
+    if not key:
+        return None, "⚠️ Veuillez entrer votre clé API dans le menu à gauche."
+        
+    today = datetime.date.today()
+    # On recherche les résultats prévus dans les 6 prochains mois
+    end_date = today + datetime.timedelta(days=180)
+    
+    # L'URL exacte de l'API avec nos paramètres
+    url = f"https://finnhub.io/api/v1/calendar/earnings?from={today}&to={end_date}&symbol={ticker}&token={key}"
+    
+    try:
+        response = requests.get(url)
+        
+        # Gestion des erreurs HTTP (comme vu en cours)
+        if response.status_code == 401:
+            return None, "❌ Clé API invalide ou non reconnue."
+        elif response.status_code == 429:
+            return None, "⏳ Limite de requêtes atteinte (attendez 1 minute)."
+            
+        data = response.json()
+        
+        # Traitement du JSON renvoyé par l'API
+        if "earningsCalendar" in data and len(data["earningsCalendar"]) > 0:
+            calendrier = data["earningsCalendar"]
+            # On convertit les textes en vraies dates et on prend la plus proche
+            dates = [datetime.datetime.strptime(item["date"], "%Y-%m-%d").date() for item in calendrier]
+            dates.sort()
+            return dates[0], "✅ Donnée certifiée (Finnhub)"
+        else:
+            return None, "🗓️ Aucune date officiellement annoncée pour le moment."
+            
+    except Exception as e:
+        return None, f"Erreur système : {e}"
 
-# --- 3. INTERFACE ---
+# --- 4. AFFICHAGE DE L'INTERFACE ---
 df = get_cac40_static()
 
 col_nav, col_main = st.columns([1, 2])
@@ -95,25 +114,34 @@ with col_nav:
         df_display = df
         
     options = [f"{row['Nom']} ({row['Code']})" for i, row in df_display.iterrows()]
-    if not options:
-        st.warning("Aucun résultat.")
-        st.stop()
-        
     choice = st.radio("Sélection :", options, label_visibility="collapsed")
+    
+    code_ticker = choice.split("(")[-1].replace(")", "")
     nom_entreprise = choice.split(" (")[0]
 
 with col_main:
-    st.markdown(f"## 📊 Analyse de **{nom_entreprise}**")
+    st.markdown(f"## 📊 Résultats pour **{nom_entreprise}**")
     st.markdown("---")
     
-    st.info("💡 En raison des protections anti-robots strictes de Zonebourse, la date ne peut pas être importée automatiquement sur ce serveur.")
-    
-    # Génération du lien direct
-    zb_url = generate_zonebourse_url(nom_entreprise)
-    
-    # Bouton de redirection Streamlit (ouvre un nouvel onglet)
-    st.link_button(f"🔍 Voir l'agenda de {nom_entreprise} sur Zonebourse", zb_url)
+    if st.button("🔄 Interroger l'API Financière", type="primary"):
+        with st.spinner("Connexion sécurisée aux serveurs Finnhub..."):
+            date_res, status = get_earnings_api(code_ticker, api_key)
+            
+            c1, c2 = st.columns(2)
+            
+            if date_res:
+                d_str = date_res.strftime("%d/%m/%Y")
+                c1.metric("Date de Publication", d_str)
+                
+                # Calcul des jours restants
+                delta = (date_res - datetime.date.today()).days
+                c2.metric("Compte à rebours", f"Dans {delta} jours")
+                st.success(f"Statut : {status}")
+            else:
+                c1.metric("Date de Publication", "--")
+                c2.metric("Compte à rebours", "--")
+                st.warning(f"Statut : {status}")
 
 st.divider()
-with st.expander("Voir la liste complète des tickers CAC 40"):
+with st.expander("Voir la base de données complète (CAC 40)"):
     st.dataframe(df, use_container_width=True)
